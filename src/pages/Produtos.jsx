@@ -1,16 +1,18 @@
 import { useState, useEffect } from "react";
-import Sidebar from "../components/sidebar";
+import Sidebar from "../components/Sidebar";
 import { supabase } from "../lib/supabase";
+import toast, { Toaster } from "react-hot-toast";
+import Swal from "sweetalert2";
 
 export default function Produtos() {
-  // Estados da Tabela
   const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState(null);
-
-  // Estados do Modal de Novo Produto
+  const [termoBusca, setTermoBusca] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [produtoEditandoId, setProdutoEditandoId] = useState(null);
+
   const [novoProduto, setNovoProduto] = useState({
     nome: "",
     categoria: "",
@@ -29,142 +31,263 @@ export default function Produtos() {
         .from("produtos")
         .select("*")
         .order("nome", { ascending: true });
-
       if (error) throw error;
       setProdutos(data);
     } catch (error) {
       console.error("Erro ao buscar produtos:", error.message);
       setErro("Não foi possível carregar a lista de produtos.");
+      toast.error("Erro ao carregar produtos.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Função para salvar o produto no banco de dados
+  const handleAbrirModalNovo = () => {
+    setProdutoEditandoId(null);
+    setNovoProduto({ nome: "", categoria: "", preco: "", estoque: "" });
+    setIsModalOpen(true);
+  };
+
+  const handleAbrirModalEditar = (produto) => {
+    setProdutoEditandoId(produto.id);
+    setNovoProduto({
+      nome: produto.nome,
+      categoria: produto.categoria,
+      preco: produto.preco,
+      estoque: produto.estoque,
+    });
+    setIsModalOpen(true);
+  };
+
   const handleSalvarProduto = async (e) => {
-    e.preventDefault(); // Evita que a página recarregue ao enviar o formulário
+    e.preventDefault();
     setSalvando(true);
-
     try {
-      // Mandando os dados para o Supabase
-      const { error } = await supabase.from("produtos").insert([
-        {
-          nome: novoProduto.nome,
-          categoria: novoProduto.categoria,
-          preco: parseFloat(novoProduto.preco), // Garante que preço é número com vírgula (decimal)
-          estoque: parseInt(novoProduto.estoque, 10), // Garante que estoque é número inteiro
-        },
-      ]);
+      const dadosParaSalvar = {
+        nome: novoProduto.nome,
+        categoria: novoProduto.categoria,
+        preco: parseFloat(novoProduto.preco),
+        estoque: parseInt(novoProduto.estoque, 10),
+      };
 
-      if (error) throw error;
+      if (produtoEditandoId) {
+        const { error } = await supabase
+          .from("produtos")
+          .update(dadosParaSalvar)
+          .eq("id", produtoEditandoId);
+        if (error) throw error;
+        toast.success("Produto atualizado com sucesso!");
+      } else {
+        const { error } = await supabase
+          .from("produtos")
+          .insert([dadosParaSalvar]);
+        if (error) throw error;
+        toast.success("Novo produto cadastrado!");
+      }
 
-      // Se deu certo: fecha o modal, limpa o formulário e recarrega a tabela!
       setIsModalOpen(false);
-      setNovoProduto({ nome: "", categoria: "", preco: "", estoque: "" });
       buscarProdutos();
     } catch (error) {
       console.error("Erro ao salvar produto:", error.message);
-      alert("Erro ao salvar o produto. Verifique o console.");
+      toast.error("Ocorreu um erro ao salvar o produto.");
     } finally {
       setSalvando(false);
     }
   };
 
+  // ✅ FIX: Usando async/await dentro do Swal corretamente
+  // O .then() com async pode silenciar erros — agora está tratado com try/catch explícito
+  const handleExcluirProduto = async (id) => {
+    const result = await Swal.fire({
+      title: "Tem certeza?",
+      text: "Essa ação não poderá ser desfeita!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#7c3aed",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Sim, excluir!",
+      cancelButtonText: "Cancelar",
+    });
+
+    // Só executa se o usuário confirmou
+    if (!result.isConfirmed) return;
+
+    try {
+      const { error } = await supabase.from("produtos").delete().eq("id", id);
+
+      if (error) throw error;
+
+      toast.success("Produto excluído com sucesso!");
+      buscarProdutos();
+    } catch (error) {
+      console.error("Erro ao excluir produto:", error.message);
+      toast.error("Erro ao tentar excluir o produto.");
+    }
+  };
+
+  const produtosFiltrados = produtos.filter((produto) =>
+    produto.nome.toLowerCase().includes(termoBusca.toLowerCase()),
+  );
+
   return (
-    <div className="flex bg-gray-50 min-h-screen w-full relative">
+    <div className="flex bg-purple-50 min-h-screen w-full">
       <Sidebar />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: "#1e1b4b",
+            color: "#e9d5ff",
+            border: "1px solid #4c1d95",
+          },
+        }}
+      />
 
       <main className="flex-1 p-8">
+        {/* Header */}
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">
-            Gerenciar Produtos
-          </h1>
-          {/* Agora o botão abre o Modal! */}
+          <div>
+            <h1 className="text-3xl font-bold text-purple-900">
+              Gerenciar Produtos
+            </h1>
+            <p className="text-purple-400 text-sm mt-1">
+              Cadastre, edite e remova produtos do estoque
+            </p>
+          </div>
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-sm transition duration-200"
+            onClick={handleAbrirModalNovo}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-semibold py-2.5 px-5 rounded-xl shadow-md shadow-violet-500/20 transition duration-150"
           >
-            + Novo Produto
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+            Novo Produto
           </button>
         </div>
 
         {erro && (
-          <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-md">
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm">
             {erro}
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-100">
+        {/* Barra de Pesquisa */}
+        <div className="mb-5">
+          <div className="relative w-full max-w-md">
+            <input
+              type="text"
+              placeholder="Pesquisar produto pelo nome..."
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-purple-200 rounded-xl text-sm text-purple-900
+                placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-violet-400/40 focus:border-violet-400 transition"
+              value={termoBusca}
+              onChange={(e) => setTermoBusca(e.target.value)}
+            />
+            <svg
+              className="w-4 h-4 text-purple-400 absolute left-3 top-3"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
+        </div>
+
+        {/* Tabela */}
+        <div className="bg-white rounded-2xl shadow-sm border border-purple-100 overflow-hidden">
+          <table className="min-w-full divide-y divide-purple-100">
+            <thead className="bg-purple-50">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Nome
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Categoria
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Preço
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Estoque
-                </th>
-                <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Ações
-                </th>
+                {["Nome", "Categoria", "Preço", "Estoque", "Ações"].map(
+                  (col, i) => (
+                    <th
+                      key={col}
+                      className={`px-6 py-4 text-xs font-bold text-purple-400 uppercase tracking-wider ${i === 4 ? "text-right" : "text-left"}`}
+                    >
+                      {col}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
 
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white divide-y divide-purple-50">
               {loading ? (
                 <tr>
-                  <td
-                    colSpan="5"
-                    className="px-6 py-8 text-center text-gray-500"
-                  >
-                    Carregando produtos...
+                  <td colSpan="5" className="px-6 py-10 text-center">
+                    <div className="flex items-center justify-center gap-2 text-purple-400 text-sm">
+                      <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                      Carregando produtos...
+                    </div>
                   </td>
                 </tr>
-              ) : produtos.length === 0 ? (
+              ) : produtosFiltrados.length === 0 ? (
                 <tr>
                   <td
                     colSpan="5"
-                    className="px-6 py-8 text-center text-gray-500"
+                    className="px-6 py-10 text-center text-purple-300 text-sm"
                   >
-                    Nenhum produto cadastrado no momento.
+                    {termoBusca
+                      ? "Nenhum produto encontrado com esse nome."
+                      : "Nenhum produto cadastrado no momento."}
                   </td>
                 </tr>
               ) : (
-                produtos.map((produto) => (
+                produtosFiltrados.map((produto) => (
                   <tr
                     key={produto.id}
-                    className="hover:bg-gray-50 transition duration-150"
+                    className="hover:bg-purple-50/50 transition duration-150"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-900">
                       {produto.nome}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-purple-400">
                       {produto.categoria}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-700">
                       {Number(produto.preco).toLocaleString("pt-BR", {
                         style: "currency",
                         currency: "BRL",
                       })}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span
-                        className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${produto.estoque > 10 ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}
+                        className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full
+                        ${
+                          produto.estoque > 10
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
                       >
                         {produto.estoque} un
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button className="text-blue-600 hover:text-blue-900 mr-4 transition">
+                      <button
+                        onClick={() => handleAbrirModalEditar(produto)}
+                        className="text-violet-500 hover:text-violet-700 mr-4 transition font-semibold"
+                      >
                         Editar
                       </button>
-                      <button className="text-red-600 hover:text-red-900 transition">
+                      <button
+                        onClick={() => handleExcluirProduto(produto.id)}
+                        className="text-rose-400 hover:text-rose-600 transition font-semibold"
+                      >
                         Excluir
                       </button>
                     </td>
@@ -176,25 +299,46 @@ export default function Produtos() {
         </div>
       </main>
 
-      {/* ========================================================= */}
-      {/* MODAL DE NOVO PRODUTO (Só aparece se isModalOpen for true)*/}
-      {/* ========================================================= */}
+      {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
-          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">
-              Cadastrar Produto
-            </h2>
+        <div className="fixed inset-0 bg-purple-950/60 backdrop-blur-sm flex justify-center items-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 border border-purple-100">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-purple-100">
+              <h2 className="text-xl font-bold text-purple-900">
+                {produtoEditandoId ? "Editar Produto" : "Cadastrar Produto"}
+              </h2>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-purple-300 hover:text-purple-500 transition"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
 
-            <form onSubmit={handleSalvarProduto} className="space-y-4">
+            {/* Modal Body */}
+            <form onSubmit={handleSalvarProduto} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-purple-400 uppercase tracking-wider mb-1.5">
                   Nome do Produto
                 </label>
                 <input
                   type="text"
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-purple-200 rounded-xl px-4 py-2.5 text-sm text-purple-900
+                    focus:outline-none focus:ring-2 focus:ring-violet-400/40 focus:border-violet-400 transition"
                   value={novoProduto.nome}
                   onChange={(e) =>
                     setNovoProduto({ ...novoProduto, nome: e.target.value })
@@ -203,13 +347,14 @@ export default function Produtos() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-purple-400 uppercase tracking-wider mb-1.5">
                   Categoria
                 </label>
                 <input
                   type="text"
                   required
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-purple-200 rounded-xl px-4 py-2.5 text-sm text-purple-900
+                    focus:outline-none focus:ring-2 focus:ring-violet-400/40 focus:border-violet-400 transition"
                   value={novoProduto.categoria}
                   onChange={(e) =>
                     setNovoProduto({
@@ -222,7 +367,7 @@ export default function Produtos() {
 
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-semibold text-purple-400 uppercase tracking-wider mb-1.5">
                     Preço (R$)
                   </label>
                   <input
@@ -230,23 +375,24 @@ export default function Produtos() {
                     step="0.01"
                     min="0"
                     required
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-purple-200 rounded-xl px-4 py-2.5 text-sm text-purple-900
+                      focus:outline-none focus:ring-2 focus:ring-violet-400/40 focus:border-violet-400 transition"
                     value={novoProduto.preco}
                     onChange={(e) =>
                       setNovoProduto({ ...novoProduto, preco: e.target.value })
                     }
                   />
                 </div>
-
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-semibold text-purple-400 uppercase tracking-wider mb-1.5">
                     Estoque
                   </label>
                   <input
                     type="number"
                     min="0"
                     required
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-purple-200 rounded-xl px-4 py-2.5 text-sm text-purple-900
+                      focus:outline-none focus:ring-2 focus:ring-violet-400/40 focus:border-violet-400 transition"
                     value={novoProduto.estoque}
                     onChange={(e) =>
                       setNovoProduto({
@@ -258,20 +404,26 @@ export default function Produtos() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-8">
+              {/* Modal Footer */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-purple-50">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+                  className="px-4 py-2.5 text-sm text-purple-500 bg-purple-50 hover:bg-purple-100 rounded-xl font-medium transition"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={salvando}
-                  className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition"
+                  className="px-5 py-2.5 text-sm text-white bg-violet-600 hover:bg-violet-500
+                    rounded-xl font-semibold disabled:opacity-50 transition shadow-md shadow-violet-500/20"
                 >
-                  {salvando ? "Salvando..." : "Salvar Produto"}
+                  {salvando
+                    ? "Salvando..."
+                    : produtoEditandoId
+                      ? "Atualizar Produto"
+                      : "Salvar Produto"}
                 </button>
               </div>
             </form>

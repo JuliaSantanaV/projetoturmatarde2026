@@ -1,27 +1,22 @@
-/* eslint-disable react-refresh/only-export-components */
 import { createContext, useState, useEffect, useContext } from "react";
-
-// Caminho ajustado para a pasta lib, conforme configurado no seu projeto
 import { supabase } from "../lib/supabase";
 
-// 1. Criamos o Contexto (o nosso "Gerente" global de informações)
 export const AuthContext = createContext();
 
-// 2. Criamos o Provider (o componente que vai abraçar o nosso App)
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // Controla a tela branca enquanto o Supabase pensa
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Busca a sessão atual assim que o app abre
+    // Busca sessão inicial
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    // Fica escutando qualquer mudança (se o usuário fez login ou logout)
+    // Escuta mudanças de autenticação (login, logout, refresh de token)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -30,13 +25,9 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
 
-    // Limpa a escuta quando o componente é desmontado (boa prática do React)
     return () => subscription.unsubscribe();
   }, []);
 
-  // --- FUNÇÕES DE AUTENTICAÇÃO ---
-
-  // Função para Entrar (Login)
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -46,24 +37,24 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  // Função para Sair (Logout)
   const logout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error("Erro ao sair do sistema:", error.message);
-    }
+    await supabase.auth.signOut();
   };
 
-  // 3. Retornamos o Provider entregando todas as variáveis e funções para o sistema
+  // ✅ FIX: Renderiza `children` SEMPRE (não bloqueia em loading)
+  // O controle de loading fica na RotaProtegida, que sabe lidar com cada rota
+  // Isso evita a tela em branco total durante a inicialização
   return (
     <AuthContext.Provider value={{ session, user, loading, login, logout }}>
-      {/* Só mostra o site quando terminar de carregar a verificação do Supabase */}
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 }
 
-// 4. Atalho (Hook customizado) para facilitar o uso do Contexto em outras telas!
 export function useAuth() {
-  return useContext(AuthContext);
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth deve ser usado dentro de um AuthProvider");
+  }
+  return context;
 }
